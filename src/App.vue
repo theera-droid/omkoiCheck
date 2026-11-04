@@ -1,6 +1,10 @@
 <script setup>
 import { computed,onMounted,onUnmounted,ref } from 'vue';
 const pagesMode=import.meta.env.VITE_PAGES==='true';
+const apiBase=(import.meta.env.VITE_API_BASE_URL||'').replace(/\/$/,'');
+const liveMode=!pagesMode||Boolean(apiBase);
+const connection=ref('connecting');
+const connectionLabel=computed(()=>!liveMode?'อัปเดตเป็นรอบจาก GitHub Pages':connection.value==='live'?'เชื่อมต่อข้อมูลสดแล้ว · ตรวจต้นทางเป็นรอบ':connection.value==='reconnecting'?'การเชื่อมต่อขาดหาย · กำลังเชื่อมต่อใหม่':'กำลังเชื่อมต่อข้อมูลสด…');
 const payload=ref(null),error=ref(''),busy=ref(false),month=ref(''),selected=ref(''),clock=ref(Date.now());
 const view=ref('log');
 const history=computed(()=>payload.value?.history??[]);
@@ -18,7 +22,7 @@ function confirmed(event){const row=rows.value.get(event.date);return !event.clo
 function eventStatus(event){return event.closedAt?'ปิดแล้ว '+time(event.closedAt):confirmed(event)?'ยังว่าง':'รอตรวจยืนยัน';}
 function eventDuration(event){return duration(event.openedAt,event.closedAt??(confirmed(event)?clock.value:event.lastSeenAt));}
 function showDate(date){month.value=date.slice(0,7);selected.value=date;view.value='calendar';}
-let timer,tick,controller,disposed=false;
+let timer,tick,controller,stream,disposed=false;
 const rows=computed(()=>new Map((payload.value?.records??[]).map(row=>[row.date,row])));
 const months=computed(()=>[...new Set((payload.value?.calendar?.dates??[]).map(date=>date.slice(0,7)))]);
 const allowed=computed(()=>new Set(payload.value?.calendar?.dates??[]));
@@ -34,31 +38,43 @@ const days=computed(()=>{
   });
 });
 const stamp=value=>value?new Date(value).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}):'ยังไม่มีข้อมูล';
-const old=row=>Boolean(row?.observedAt&&(row.stale||clock.value-Date.parse(row.observedAt)>(pagesMode?600000:60000)));
+const old=row=>Boolean(row?.observedAt&&(row.stale||clock.value-Date.parse(row.observedAt)>(liveMode?120000:600000)));
 function label(row){return row.status==='closed'?'ไม่เปิด':old(row)?'ยอดเก่า: '+row.available:row.available===null?'ยังไม่ทราบยอด':row.available===0?'เต็มแล้ว':'เหลือ '+row.available+' ที่';}
 function changeMonth(delta){const index=months.value.indexOf(month.value)+delta;if(months.value[index]){month.value=months.value[index];selected.value=payload.value.calendar.dates.find(date=>date.startsWith(month.value));}}
+function accept(next){
+  if(!next||next.site!=='omkoi')throw new Error('กำลังรอชุดข้อมูลอมก๋อยจากระบบ');
+  if(disposed)return;
+  if(payload.value?.checkedAt&&(!next.checkedAt||Date.parse(next.checkedAt)<Date.parse(payload.value.checkedAt)))return;
+  payload.value=next;error.value='';clock.value=Date.now();
+  if(!months.value.includes(month.value))month.value=months.value[0]??'';
+  if(!allowed.value.has(selected.value))selected.value=next.calendar?.dates?.[0]??'';
+}
 async function load(){
   if(disposed)return;busy.value=true;controller=new AbortController();
   try{
-    const url=pagesMode?import.meta.env.BASE_URL+'data/availability.json?t='+Date.now():'/api/omkoi';
+    const url=liveMode?apiBase+'/api/omkoi':import.meta.env.BASE_URL+'data/availability.json?t='+Date.now();
     const response=await fetch(url,{cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
     if(!response.ok)throw new Error('ยังเชื่อมต่อข้อมูลไม่ได้');
     const next=await response.json();
-    if(!next||next.site!=='omkoi')throw new Error('กำลังรอชุดข้อมูลอมก๋อยจากระบบ');
-    if(disposed)return;
-    payload.value=next;error.value='';clock.value=Date.now();
-    if(!months.value.includes(month.value))month.value=months.value[0]??'';
-    if(!allowed.value.has(selected.value))selected.value=next.calendar?.dates?.[0]??'';
+    accept(next);
   }catch(e){if(!disposed)error.value=e.message+' · ไม่ใช้ศูนย์แทนยอดที่อ่านไม่ได้';}
-  finally{busy.value=false;if(!disposed)timer=setTimeout(load,pagesMode?30000:5000);}
+  finally{busy.value=false;if(!disposed)timer=setTimeout(load,30000);}
 }
-onMounted(()=>{load();tick=setInterval(()=>clock.value=Date.now(),1000);});
-onUnmounted(()=>{disposed=true;controller?.abort();clearTimeout(timer);clearInterval(tick);});
+onMounted(()=>{
+  load();tick=setInterval(()=>clock.value=Date.now(),1000);
+  if(liveMode){
+    stream=new EventSource(apiBase+'/api/omkoi/events');
+    stream.onmessage=event=>{try{accept(JSON.parse(event.data));connection.value='live';}catch{error.value='ข้อมูลสดมีรูปแบบไม่ถูกต้อง';connection.value='reconnecting';}};
+    stream.onerror=()=>{connection.value='reconnecting';};
+  }
+});
+onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(timer);clearInterval(tick);});
 </script>
 <template>
 <header v-if="view==='log'" class="log-header"><button class="log-back" aria-label="ดูปฏิทิน" @click="view='calendar'">←</button><div><div class="log-eyebrow">▤ log ติดตามวันว่าง</div><h1>อมก๋อย</h1></div><span class="log-updated">ข้อมูล ณ {{time(payload?.checkedAt)}}</span></header>
 <header v-else><div class="brand"><span aria-hidden="true">△</span> OMKOI</div><button class="view-switch" @click="view='log'">ดู log วันว่าง →</button></header>
 <main v-if="view==='log'" class="log-main">
+  <div class="live-status" role="status"><i :class="{connected:liveMode&&connection==='live'}"></i>{{connectionLabel}}<span v-if="liveMode">พัก 30 วินาทีหลังจบรอบตรวจ · อัปเดตเมื่อได้รับข้อมูล</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <p v-if="payload && payload.state!=='ready'" class="omkoi-alert">{{payload.message}}</p>
   <section class="log-card latest-card">
@@ -83,7 +99,7 @@ onUnmounted(()=>{disposed=true;controller?.abort();clearTimeout(timer);clearInte
 </main>
 <main v-else>
   <section class="hero"><div class="hero-copy"><div class="eyebrow">OMKOI · NATURE TRAIL</div><h1>วางแผนวันเดินป่าอมก๋อย</h1><p>ปฏิทินวันว่างจากระบบจองทางการ<br>อ่านยอดจริงและแสดงเวลาที่ตรวจได้</p></div></section>
-  <div class="notice"><b>◌ เชื่อมระบบแล้ว</b><span>ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า · ไม่รับจอง</span></div>
+  <div class="notice"><b>◌ {{connectionLabel}}</b><span>{{liveMode?'พัก 30 วินาทีหลังจบรอบตรวจ':'ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า'}} · ไม่รับจอง</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <section v-if="!payload?.calendar" class="calendar waiting" aria-live="polite">
     <div class="eyebrow">{{payload?.state==='unavailable'?'WAITING FOR SOURCE':'RESERVATIONS OPEN SOON'}}</div>

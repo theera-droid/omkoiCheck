@@ -34,6 +34,31 @@ npm.cmd start
 - ถ้าต้นทางล่มจะใช้ยอดล่าสุดที่เคยตรวจได้พร้อมป้ายข้อมูลเก่า ไม่เติมศูนย์ ถ้า API หรือปฏิทินเปลี่ยนรูปแบบที่ไม่รองรับจะแจ้งสถานะรอตรวจสอบ
 - โหมด local มี cache ของตนเองใน `.cache/` โหมด GitHub Pages ใช้ Actions ทุกประมาณ 5 นาทีหรือมากกว่า และอ่านชุดที่เผยแพร่ก่อนหน้าเพื่อเก็บยอดเก่า
 
+## ข้อมูลสดและการ deploy backend
+
+หน้าเว็บเชื่อม Server-Sent Events (`/api/omkoi/events`) และอัปเดตทันทีเมื่อ backend ตรวจครบหนึ่งรอบ โดยพัก 30 วินาทีหลังจบรอบก่อนเริ่มใหม่ ใช้ตัวตรวจร่วมกันทุกผู้ชมและตรวจต่อแม้ไม่มีคนเปิดเว็บ ไม่ใช่การรับแจ้งเตือนโดยตรงจากระบบจอง จึงอาจพลาดที่ว่างระหว่างรอบได้
+
+รันในเครื่องด้วย `npm.cmd run dev` เพื่อใช้ข้อมูลสดได้ทันที หน้าเว็บแสดงสถานะการเชื่อมต่อและยอดเก่าเมื่อข้อมูลขาดช่วง มี HTTP polling ทุก 30 วินาทีสำรองระหว่างการเชื่อมต่อใหม่
+
+สำหรับเซิร์ฟเวอร์ที่มี Docker:
+
+```sh
+docker compose up -d --build
+```
+
+เปิดผ่าน `http://127.0.0.1:3002` บนเซิร์ฟเวอร์ หรือวาง HTTPS reverse proxy หน้า port 3002 โดยปิด response buffering ของ `/api/omkoi/events` และกำหนด read timeout มากกว่า 30 วินาที ตรวจสุขภาพได้ที่ `/api/health` ต้องใช้เซิร์ฟเวอร์ที่รันตลอด ไม่พักเมื่อไม่มีคนใช้งาน และรันหนึ่ง instance เพื่อให้ประวัติมีผู้เขียนคนเดียว
+
+Docker Compose เก็บประวัติใน volume `omkoi-data` ที่ `/data/availability.json` อย่าลบ volume หากต้องการเก็บประวัติเดิม สำรองไฟล์นี้เป็นระยะ หากย้ายจาก GitHub Pages ให้ดาวน์โหลด `data/availability.json` จากเว็บเดิมลง cache ก่อนเริ่ม backend เพื่อสืบต่อประวัติ
+
+หากรัน Node.js โดยตรง ใช้ `npm ci`, `npm run build`, `npm start` และกำหนด environment:
+
+- `HOST=0.0.0.0` สำหรับให้ระบบ hosting เข้าถึง service
+- `PORT=3002` หรือ port ของ hosting
+- `CACHE_PATH` เป็น absolute path บน persistent disk ที่เขียนได้
+- `ALLOWED_ORIGIN=https://theera-droid.github.io` สำหรับหน้า GitHub Pages (ไม่ใส่ path และไม่ใส่ slash ท้าย)
+
+ใช้เว็บจาก backend โดยตรงได้ทั้งหน้าเว็บและ API หากยังใช้ GitHub Pages ให้ตั้ง GitHub repository variable `OMKOI_API_BASE_URL` เป็น HTTPS URL ของ backend เช่น `https://omkoi.example.com` (ไม่ต่อ `/api`) แล้วรัน workflow ใหม่ ตัว build จะส่งเป็น `VITE_API_BASE_URL` ให้หน้าเว็บ หากยังไม่ตั้ง URL หน้า Pages จะใช้ snapshot ตามรอบเดิมและจะไม่แสดงว่าเชื่อมต่อข้อมูลสดแล้ว
+
 ## ไฟล์หลัก
 
 - `src/App.vue`: หน้าอมก๋อยแบบ standalone

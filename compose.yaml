@@ -1,0 +1,12 @@
+services:
+  omkoi:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3002"
+    environment:
+      ALLOWED_ORIGIN: https://theera-droid.github.io
+    volumes:
+      - omkoi-data:/data
+volumes:
+  omkoi-data:
