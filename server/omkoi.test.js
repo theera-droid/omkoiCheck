@@ -54,6 +54,17 @@ test('current source calendar allows December 30 and blocks November 7–10',()=
   assert.equal(result.dates[0],'2026-11-12');assert.equal(result.end,'2027-02-14');
   assert(result.dates.includes('2026-12-30'));assert(!result.dates.includes('2026-11-11'));
 });
+test('timeouts on the first batch do not prevent checking later dates',async()=>{
+  let counts=0;
+  const result=await updateOmkoi({now:()=>before,pause:async()=>{},fetchImpl:async url=>{
+    if(url.endsWith('/open'))return Response.json({data:{open:true}});
+    if(url.endsWith('/reservation'))return new Response('<script src="/_next/static/chunks/1205-test.js"></script>');
+    if(url.endsWith('.js'))return new Response(calendar('2026-11-20'));
+    if(++counts<=3)throw new DOMException('Timeout','TimeoutError');
+    return Response.json({status:'success',data:{qty:230,qty_reserve:12}});
+  }});
+  assert(counts>3);assert(result.records.length>0);assert.equal(result.state,'partial');
+});
 test('outage retains a verified new-season count with its original time',async()=>{
   const row={date:'2026-11-10',available:66,capacity:230,observedAt:'2026-11-03T01:00:00Z'};
   const result=await updateOmkoi({now:()=>before,previous:{records:[row]},fetchImpl:async()=>{throw new Error('offline');}});

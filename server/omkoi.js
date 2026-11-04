@@ -47,7 +47,7 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
   const priorRows=(previous?.records??[]).filter(row=>row?.date>=EXPECTED && Number.isInteger(row.available) && row.available>=0 && Number.isInteger(row.capacity) && row.capacity>=row.available && Number.isFinite(Date.parse(row.observedAt))).map(row=>({...row,stale:true}));
   const base={version:1,site:'omkoi',sourceUrl:OMKOI_URL,expectedOpening:EXPECTED,checkedAt,bookingOpen:null,records:priorRows,calendar:previous?.calendar??null};
   const get=async(url,json=true)=>{
-    const r=await fetchImpl(url,{signal:AbortSignal.timeout(30000),redirect:'error'});
+    const r=await fetchImpl(url,{signal:AbortSignal.timeout(45000),redirect:'error'});
     if(!r.ok)throw Object.assign(new Error(`ต้นทางตอบ HTTP ${r.status}`),{status:r.status});
     return json?r.json():r.text();
   };
@@ -76,16 +76,15 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
     const records=new Map(priorRows.filter(row=>calendar.dates.includes(row.date)).map(row=>[row.date,row]));
     // Prioritize unread/oldest dates so a slow source cannot starve the end of the calendar.
     const queue=[...calendar.dates].sort((a,b)=>(Date.parse(records.get(a)?.observedAt)||0)-(Date.parse(records.get(b)?.observedAt)||0));
-    let failures=0,stop=false;
+    let stop=false;
     const scanStarted=now();
     for(let i=0;i<queue.length && !stop && now()-scanStarted<240000;i+=3) {
       const batch=queue.slice(i,i+3);
       const results=await Promise.allSettled(batch.map(async date=>parseOmkoiQuantity(await get(ROOT+'/api/omkoi/reservation/check-qty-people?start_date='+date),date,new Date(now()).toISOString())));
       results.forEach((r,j)=>{
-        if(r.status==='fulfilled'){records.set(batch[j],r.value);failures=0;}
-        else {failures++;if([401,403,429].includes(r.reason.status))stop=true;}
+        if(r.status==='fulfilled')records.set(batch[j],r.value);
+        else if([401,403,429].includes(r.reason.status))stop=true;
       });
-      if(failures>=3)stop=true;
       if(i+3<calendar.dates.length && !stop)await pause(1250);
     }
     base.records=[...records.values()];
