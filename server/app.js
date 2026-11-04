@@ -16,6 +16,7 @@ export function createApp({fetchImpl=fetch,cachePath=process.env.CACHE_PATH||fil
   function publish(){for(const client of clients)if(!client.write(message()))client.destroy();}
   function refresh(){
     if(closed||pending||Date.now()<next)return pending;
+    clearTimeout(timer);
     pending=(async()=>{
       await ready;
       snapshot=await updateImpl({previous:snapshot,fetchImpl});
@@ -26,7 +27,7 @@ export function createApp({fetchImpl=fetch,cachePath=process.env.CACHE_PATH||fil
       publish();
     }).finally(()=>{
       pending=null;next=Date.now()+pollMs;
-      if(!closed){timer=setTimeout(refresh,pollMs);timer.unref();}
+      if(!closed){timer=setTimeout(()=>{next=0;refresh();},pollMs);timer.unref();}
     });
     return pending;
   }
