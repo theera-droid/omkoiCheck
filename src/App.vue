@@ -24,6 +24,18 @@ function eventDuration(event){return duration(event.openedAt,event.closedAt??(co
 function showDate(date){month.value=date.slice(0,7);selected.value=date;view.value='calendar';}
 let timer,tick,controller,stream,disposed=false;
 const rows=computed(()=>new Map((payload.value?.records??[]).map(row=>[row.date,row])));
+const dateFilter=ref('all');
+const allDates=computed(()=>(payload.value?.calendar?.dates??[]).slice().sort().map(date=>rows.value.get(date)??{date,available:null,status:'unknown'}));
+const availableDates=computed(()=>allDates.value.filter(row=>row.available>0));
+const unknownDates=computed(()=>allDates.value.filter(row=>row.available==null));
+const visibleDates=computed(()=>dateFilter.value==='available'?availableDates.value:allDates.value);
+function dateStatus(row){
+  if(row.available==null)return 'ยังตรวจไม่สำเร็จ';
+  if(old(row))return 'ยอดเก่า · รอตรวจใหม่';
+  if(payload.value?.bookingOpen===false)return 'ต้นทางปิดรับจอง';
+  if(row.available===0)return 'เต็มแล้ว';
+  return payload.value?.bookingOpen===true?'มีที่ว่าง':'พบที่ว่าง · รอยืนยันรับจอง';
+}
 const months=computed(()=>[...new Set((payload.value?.calendar?.dates??[]).map(date=>date.slice(0,7)))]);
 const allowed=computed(()=>new Set(payload.value?.calendar?.dates??[]));
 const active=computed(()=>rows.value.get(selected.value));
@@ -77,6 +89,18 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
   <div class="live-status" role="status"><i :class="{connected:liveMode&&connection==='live'}"></i>{{connectionLabel}}<span v-if="liveMode">พัก 30 วินาทีหลังจบรอบตรวจ · อัปเดตเมื่อได้รับข้อมูล</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <p v-if="payload && payload.state!=='ready'" class="omkoi-alert">{{payload.message}}</p>
+  <section class="log-card all-dates-card" aria-labelledby="all-dates-title">
+    <div class="dates-heading"><div><h2 id="all-dates-title">วันว่างทุกวัน</h2><p>พบยอดว่าง {{availableDates.length}} วัน · ยังไม่ทราบยอด {{unknownDates.length}} วัน · ทั้งหมด {{allDates.length}} วัน</p></div>
+      <div class="date-filters" aria-label="เลือกวันที่แสดง"><button :aria-pressed="dateFilter==='all'" @click="dateFilter='all'">ทุกวัน ({{allDates.length}})</button><button :aria-pressed="dateFilter==='available'" @click="dateFilter='available'">พบยอดว่าง ({{availableDates.length}})</button></div>
+    </div>
+    <p class="log-note">เรียงตามวันเข้าเดินป่า ครบทุกเดือน · ยอดเก่าแสดงไว้พร้อมเวลาตรวจ ไม่ยืนยันว่าขณะนี้ยังว่าง</p>
+    <div v-if="visibleDates.length" class="all-dates-scroll" tabindex="0" role="region" aria-label="ตารางวันว่างทุกวัน เลื่อนดูได้ครบทุกเดือน">
+      <table class="log-table all-dates-table"><thead><tr><th scope="col">วันที่เข้า</th><th scope="col">ที่ว่าง</th><th scope="col">สถานะ</th><th scope="col">ตรวจล่าสุด</th></tr></thead><tbody>
+        <tr v-for="row in visibleDates" :key="row.date" :class="{'date-available':row.available>0&&!old(row),'date-outdated':old(row)}"><td><button class="date-link" @click="showDate(row.date)">{{thaiDate(row.date)}}</button></td><td><strong>{{row.available??'—'}}</strong><span v-if="row.available!=null"> ที่</span></td><td>{{dateStatus(row)}}</td><td>{{row.observedAt?stamp(row.observedAt):'รอตรวจ'}}</td></tr>
+      </tbody></table>
+    </div>
+    <p v-else class="log-empty">{{allDates.length?'ยังไม่พบยอดว่างในข้อมูลที่ตรวจได้ ไม่ได้หมายความว่าทุกวันเต็ม':'กำลังอ่านรายการวันที่จากปฏิทินต้นทาง…'}}</p>
+  </section>
   <section class="log-card latest-card">
     <div class="log-label">ล่าสุดที่ว่าง</div>
     <template v-if="latest"><h2>{{thaiDate(latest.date)}}</h2><div class="log-stats">
