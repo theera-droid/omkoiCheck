@@ -2,6 +2,22 @@
 import { computed,onMounted,onUnmounted,ref } from 'vue';
 const pagesMode=import.meta.env.VITE_PAGES==='true';
 const payload=ref(null),error=ref(''),busy=ref(false),month=ref(''),selected=ref(''),clock=ref(Date.now());
+const view=ref('log');
+const history=computed(()=>payload.value?.history??[]);
+const latest=computed(()=>history.value[0]);
+const thaiDate=value=>new Date(value+'T12:00:00+07:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Bangkok'});
+const time=value=>value?new Date(value).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'})+' น.':'—';
+const observedDate=value=>new Date(value).toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Bangkok'});
+function duration(start,end=clock.value){
+  const minutes=Math.max(0,Math.floor((new Date(end).getTime()-Date.parse(start))/60000));
+  if(minutes<1)return 'ไม่ถึง 1 นาที';
+  const days=Math.floor(minutes/1440),hours=Math.floor(minutes%1440/60),rest=minutes%60;
+  return [days?days+' วัน':'',hours?hours+' ชม.':'',rest?rest+' นาที':''].filter(Boolean).join(' ');
+}
+function confirmed(event){const row=rows.value.get(event.date);return !event.closedAt&&payload.value?.bookingOpen===true&&row?.available>0&&!old(row);}
+function eventStatus(event){return event.closedAt?'ปิดแล้ว '+time(event.closedAt):confirmed(event)?'ยังว่าง':'รอตรวจยืนยัน';}
+function eventDuration(event){return duration(event.openedAt,event.closedAt??(confirmed(event)?clock.value:event.lastSeenAt));}
+function showDate(date){month.value=date.slice(0,7);selected.value=date;view.value='calendar';}
 let timer,tick,controller,disposed=false;
 const rows=computed(()=>new Map((payload.value?.records??[]).map(row=>[row.date,row])));
 const months=computed(()=>[...new Set((payload.value?.calendar?.dates??[]).map(date=>date.slice(0,7)))]);
@@ -40,8 +56,32 @@ onMounted(()=>{load();tick=setInterval(()=>clock.value=Date.now(),1000);});
 onUnmounted(()=>{disposed=true;controller?.abort();clearTimeout(timer);clearInterval(tick);});
 </script>
 <template>
-<header><div class="brand"><span aria-hidden="true">△</span> OMKOI</div><span class="badge">สถานะวันเดินป่าอมก๋อย</span></header>
-<main>
+<header v-if="view==='log'" class="log-header"><button class="log-back" aria-label="ดูปฏิทิน" @click="view='calendar'">←</button><div><div class="log-eyebrow">▤ log ติดตามวันว่าง</div><h1>อมก๋อย</h1></div><span class="log-updated">ข้อมูล ณ {{time(payload?.checkedAt)}}</span></header>
+<header v-else><div class="brand"><span aria-hidden="true">△</span> OMKOI</div><button class="view-switch" @click="view='log'">ดู log วันว่าง →</button></header>
+<main v-if="view==='log'" class="log-main">
+  <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
+  <p v-if="payload && payload.state!=='ready'" class="omkoi-alert">{{payload.message}}</p>
+  <section class="log-card latest-card">
+    <div class="log-label">ล่าสุดที่ว่าง</div>
+    <template v-if="latest"><h2>{{thaiDate(latest.date)}}</h2><div class="log-stats">
+      <div><span>ว่างตั้งแต่</span><strong>{{time(latest.openedAt)}}</strong><small>{{observedDate(latest.openedAt)}}</small></div>
+      <div><span>ผ่านมานานแล้ว</span><strong>{{duration(latest.openedAt)}}</strong></div>
+      <div><span>สถานะ</span><strong :class="{ 'is-open':confirmed(latest) }">{{eventStatus(latest)}}</strong></div>
+      <div><span>ว่างนาน</span><strong>{{eventDuration(latest)}}</strong></div>
+      <div><span>ที่ว่าง</span><strong>{{latest.available}} ที่</strong></div>
+    </div></template>
+    <div v-else class="log-empty"><h2>{{payload?'ยังไม่พบประวัติวันว่าง':'กำลังโหลดประวัติวันว่าง…'}}</h2><p>ระบบจะบันทึกเมื่ออ่านพบที่ว่างจากต้นทาง เริ่มเก็บประวัติตั้งแต่เปิดใช้ log</p></div>
+  </section>
+  <section class="log-card history-card"><h2>ทุกครั้งที่ว่าง <span>({{history.length}} ครั้ง)</span></h2>
+    <div v-if="history.length" class="log-table-scroll" tabindex="0" role="region" aria-label="ประวัติวันว่าง เลื่อนตารางในแนวนอนได้"><table class="log-table"><thead><tr><th>วันที่เข้า</th><th>ว่างตั้งแต่</th><th>ผ่านมานานแล้ว</th><th>สถานะ</th><th>ว่างนาน</th><th>ที่ว่าง</th></tr></thead><tbody>
+      <tr v-for="event in history" :key="event.id"><td><button class="date-link" @click="showDate(event.date)">{{thaiDate(event.date)}}</button></td><td><b>{{time(event.openedAt)}}</b><small>{{stamp(event.openedAt).split(' ')[0]}}</small></td><td>{{duration(event.openedAt)}}</td><td :class="{ 'is-open':confirmed(event) }" :title="event.closedAt?stamp(event.closedAt):'ตรวจพบล่าสุด '+stamp(event.lastSeenAt)">{{eventStatus(event)}}</td><td>{{eventDuration(event)}}</td><td>{{event.available}}</td></tr>
+    </tbody></table></div><p v-else class="log-empty">ยังไม่มีรายการวันว่างที่บันทึกไว้</p>
+  </section>
+  <p class="log-note">เวลาเป็นเวลาที่ระบบตรวจพบในประเทศไทย · ที่ว่างคือยอดล่าสุดในช่วงที่พบว่าว่าง · หากอ่านข้อมูลไม่ได้จะรอตรวจยืนยัน ไม่ถือว่าเต็มแล้ว</p>
+  <p class="log-note">ตรวจเป็นรอบ จึงอาจไม่พบช่วงที่ว่างระหว่างรอบตรวจ และไม่สามารถเรียกประวัติก่อนเริ่มบันทึกได้</p>
+  <footer>เว็บไซต์อิสระ ไม่ใช่เว็บไซต์ของเขตรักษาพันธุ์สัตว์ป่าอมก๋อย · ไม่รับจอง</footer>
+</main>
+<main v-else>
   <section class="hero"><div class="hero-copy"><div class="eyebrow">OMKOI · NATURE TRAIL</div><h1>วางแผนวันเดินป่าอมก๋อย</h1><p>ปฏิทินวันว่างจากระบบจองทางการ<br>อ่านยอดจริงและแสดงเวลาที่ตรวจได้</p></div></section>
   <div class="notice"><b>◌ เชื่อมระบบแล้ว</b><span>ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า · ไม่รับจอง</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>

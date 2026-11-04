@@ -1,3 +1,4 @@
+import {updateHistory} from './history.js';
 export const OMKOI_URL = 'https://wildlifesanctuaryfca16.com/omkoi/reservation';
 const ROOT = 'https://wildlifesanctuaryfca16.com';
 const EXPECTED = '2026-11-03';
@@ -38,6 +39,10 @@ export function parseOmkoiQuantity(body,date,checkedAt) {
   return {date,available:d.qty_reserve,capacity:d.qty,status:d.qty_reserve===0?'full':d.qty_reserve<=10?'low':'available',observedAt:checkedAt,stale:false};
 }
 export async function updateOmkoi({previous=null,fetchImpl=fetch,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+  const snapshot=await collectOmkoi({previous,fetchImpl,now,pause});
+  return {...snapshot,history:updateHistory(previous,snapshot)};
+}
+async function collectOmkoi({previous,fetchImpl,now,pause}) {
   const checkedAt=new Date(now()).toISOString();
   const priorRows=(previous?.records??[]).filter(row=>row?.date>=EXPECTED && Number.isInteger(row.available) && row.available>=0 && Number.isInteger(row.capacity) && row.capacity>=row.available && Number.isFinite(Date.parse(row.observedAt))).map(row=>({...row,stale:true}));
   const base={version:1,site:'omkoi',sourceUrl:OMKOI_URL,expectedOpening:EXPECTED,checkedAt,bookingOpen:null,records:priorRows,calendar:previous?.calendar??null};
