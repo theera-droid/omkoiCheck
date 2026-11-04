@@ -6,7 +6,7 @@ import {updateOmkoi} from './omkoi.js';
 export function createApp({fetchImpl=fetch,cachePath=process.env.CACHE_PATH||fileURLToPath(new URL('../.cache/availability.json',import.meta.url)),pollMs=30000,allowedOrigin=process.env.ALLOWED_ORIGIN||'https://theera-droid.github.io',updateImpl=updateOmkoi}={}){
   const app=express();
   const clients=new Set();
-  let snapshot={site:'omkoi',state:'checking',records:[],message:'กำลังตรวจสถานะต้นทาง',expectedOpening:'2026-11-03'},pending=null,next=0,closed=false,timer;
+  let snapshot={site:'omkoi',state:'checking',records:[],message:'กำลังตรวจสถานะต้นทาง',expectedOpening:'2026-11-04'},pending=null,next=0,closed=false,timer;
   app.use('/api',(_req,res,nextHandler)=>{
     res.set({'Access-Control-Allow-Origin':allowedOrigin,'Cache-Control':'no-store'});
     nextHandler();

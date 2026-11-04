@@ -1,7 +1,7 @@
 import {updateHistory} from './history.js';
 export const OMKOI_URL = 'https://wildlifesanctuaryfca16.com/omkoi/reservation';
 const ROOT = 'https://wildlifesanctuaryfca16.com';
-const EXPECTED = '2026-11-03';
+const EXPECTED = '2026-11-04';
 const asDate = (y,m,d) => new Date(Date.UTC(y,m,d)).toISOString().slice(0,10);
 export function bangkokDate(now) { return new Date(now+7*3600000).toISOString().slice(0,10); }
 
@@ -47,21 +47,26 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
   const priorRows=(previous?.records??[]).filter(row=>row?.date>=EXPECTED && Number.isInteger(row.available) && row.available>=0 && Number.isInteger(row.capacity) && row.capacity>=row.available && Number.isFinite(Date.parse(row.observedAt))).map(row=>({...row,stale:true}));
   const base={version:1,site:'omkoi',sourceUrl:OMKOI_URL,expectedOpening:EXPECTED,checkedAt,bookingOpen:null,records:priorRows,calendar:previous?.calendar??null};
   const get=async(url,json=true)=>{
-    const r=await fetchImpl(url,{signal:AbortSignal.timeout(10000),redirect:'error'});
+    const r=await fetchImpl(url,{signal:AbortSignal.timeout(30000),redirect:'error'});
     if(!r.ok)throw Object.assign(new Error(`ต้นทางตอบ HTTP ${r.status}`),{status:r.status});
     return json?r.json():r.text();
   };
   try {
-    const opening=await get(ROOT+'/api/omkoi/open');
-    if(typeof opening?.data?.open!=='boolean')throw new Error('ยังอ่านสถานะเปิดรับจองไม่ได้');
-    base.bookingOpen=opening.data.open;
-    base.sourceOpening=opening.data.time_open??null;
+    try {
+      const opening=await get(ROOT+'/api/omkoi/open');
+      if(typeof opening?.data?.open!=='boolean')throw new Error('ยังอ่านสถานะเปิดรับจองไม่ได้');
+      base.bookingOpen=opening.data.open;
+      base.sourceOpening=opening.data.time_open??null;
+    } catch(error) {
+      if([401,403,429].includes(error.status))throw error;
+      base.openingError='ยังยืนยันสถานะรับจองไม่ได้';
+    }
     const today=bangkokDate(now());
-    if(today<EXPECTED || !base.bookingOpen)return {...base,state:'waiting',message:today<EXPECTED?'รอเปิดจอง 3 พฤศจิกายน 2569 ตามกำหนดที่แจ้ง':'ต้นทางยังปิดรับจอง ระบบจะตรวจซ้ำอัตโนมัติ'};
+    if(today<EXPECTED || base.bookingOpen===false)return {...base,state:'waiting',message:today<EXPECTED?'กำหนดเปิดจอง 4 พฤศจิกายน 2569 เวลา 08:00 น.':'ต้นทางยังปิดรับจอง ระบบจะตรวจซ้ำอัตโนมัติ'};
     const html=await get(OMKOI_URL,false);
     const paths=[...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map(m=>m[1]).filter(p=>/^\/_next\/static\/chunks\/(?:\d+-|app\/omkoi\/reservation\/page-)/.test(p));
     let calendar=null,found=false;
-    for(const path of [...new Set(paths)].slice(0,20)) {
+    for(const path of [...new Set(paths)].sort((a,b)=>Number(b.includes('/app/omkoi/'))-Number(a.includes('/app/omkoi/'))).slice(0,24)) {
       const js=await get(ROOT+path,false);
       if(js.includes('omkoi/reservation/check-qty-people') && js.includes('maxDate:new Date')) {found=true;calendar=parseOmkoiCalendar(js,today);break;}
     }
@@ -69,9 +74,12 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
     if(!calendar)return {...base,state:'waiting',message:'ต้นทางยังแสดงฤดูกาลเดิม รอข้อมูลฤดูกาลใหม่โดยไม่ใช้ยอดเก่าแทน'};
     base.calendar=calendar;
     const records=new Map(priorRows.filter(row=>calendar.dates.includes(row.date)).map(row=>[row.date,row]));
+    // Prioritize unread/oldest dates so a slow source cannot starve the end of the calendar.
+    const queue=[...calendar.dates].sort((a,b)=>(Date.parse(records.get(a)?.observedAt)||0)-(Date.parse(records.get(b)?.observedAt)||0));
     let failures=0,stop=false;
-    for(let i=0;i<calendar.dates.length && !stop;i+=3) {
-      const batch=calendar.dates.slice(i,i+3);
+    const scanStarted=now();
+    for(let i=0;i<queue.length && !stop && now()-scanStarted<240000;i+=3) {
+      const batch=queue.slice(i,i+3);
       const results=await Promise.allSettled(batch.map(async date=>parseOmkoiQuantity(await get(ROOT+'/api/omkoi/reservation/check-qty-people?start_date='+date),date,new Date(now()).toISOString())));
       results.forEach((r,j)=>{
         if(r.status==='fulfilled'){records.set(batch[j],r.value);failures=0;}
@@ -82,6 +90,7 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
     }
     base.records=[...records.values()];
     const complete=base.records.length===calendar.dates.length && base.records.every(row=>!row.stale);
-    return {...base,state:complete?'ready':'partial',message:complete?'ยอดจากระบบอมก๋อย ณ เวลาที่ระบุ':'อ่านยอดได้ไม่ครบ ยอดเก่ามีป้ายกำกับและจะลองใหม่รอบถัดไป'};
+    const message=complete?'ยอดจากระบบอมก๋อย ณ เวลาที่ระบุ':'อ่านยอดได้ไม่ครบ ยอดเก่ามีป้ายกำกับและจะลองใหม่รอบถัดไป';
+    return {...base,state:complete&&base.bookingOpen===true?'ready':'partial',message:message+(base.openingError?' · '+base.openingError+' แต่ยังตรวจจำนวนที่ว่างได้ แนะนำตรวจการจองบนเว็บทางการ':'')};
   } catch(error) {return {...base,state:'unavailable',message:error.message+' · จะตรวจใหม่อัตโนมัติ ไม่ใช้ศูนย์แทนยอดที่อ่านไม่ได้'};}
 }

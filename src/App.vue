@@ -18,8 +18,8 @@ function duration(start,end=clock.value){
   const days=Math.floor(minutes/1440),hours=Math.floor(minutes%1440/60),rest=minutes%60;
   return [days?days+' วัน':'',hours?hours+' ชม.':'',rest?rest+' นาที':''].filter(Boolean).join(' ');
 }
-function confirmed(event){const row=rows.value.get(event.date);return !event.closedAt&&payload.value?.bookingOpen===true&&row?.available>0&&!old(row);}
-function eventStatus(event){return event.closedAt?'ปิดแล้ว '+time(event.closedAt):confirmed(event)?'ยังว่าง':'รอตรวจยืนยัน';}
+function confirmed(event){const row=rows.value.get(event.date);return !event.closedAt&&payload.value?.bookingOpen!==false&&row?.available>0&&!old(row);}
+function eventStatus(event){return event.closedAt?'ปิดแล้ว '+time(event.closedAt):confirmed(event)?(payload.value?.bookingOpen===true?'ยังว่าง':'พบที่ว่าง · รอยืนยันรับจอง'):'รอตรวจยืนยัน';}
 function eventDuration(event){return duration(event.openedAt,event.closedAt??(confirmed(event)?clock.value:event.lastSeenAt));}
 function showDate(date){month.value=date.slice(0,7);selected.value=date;view.value='calendar';}
 let timer,tick,controller,stream,disposed=false;
@@ -95,6 +95,8 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
   </section>
   <p class="log-note">เวลาเป็นเวลาที่ระบบตรวจพบในประเทศไทย · ที่ว่างคือยอดล่าสุดในช่วงที่พบว่าว่าง · หากอ่านข้อมูลไม่ได้จะรอตรวจยืนยัน ไม่ถือว่าเต็มแล้ว</p>
   <p class="log-note">ตรวจเป็นรอบ จึงอาจไม่พบช่วงที่ว่างระหว่างรอบตรวจ และไม่สามารถเรียกประวัติก่อนเริ่มบันทึกได้</p>
+  <button class="view-switch" @click="view='calendar'">ดูปฏิทินทุกวัน →</button>
+  <a class="external omkoi-link" href="https://wildlifesanctuaryfca16.com/omkoi/reservation" target="_blank" rel="noopener noreferrer">เปิดเว็บไซต์จองอมก๋อยทางการ ↗</a>
   <footer>เว็บไซต์อิสระ ไม่ใช่เว็บไซต์ของเขตรักษาพันธุ์สัตว์ป่าอมก๋อย · ไม่รับจอง</footer>
 </main>
 <main v-else>
@@ -102,11 +104,11 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
   <div class="notice"><b>◌ {{connectionLabel}}</b><span>{{liveMode?'พัก 30 วินาทีหลังจบรอบตรวจ':'ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า'}} · ไม่รับจอง</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <section v-if="!payload?.calendar" class="calendar waiting" aria-live="polite">
-    <div class="eyebrow">{{payload?.state==='unavailable'?'WAITING FOR SOURCE':'RESERVATIONS OPEN SOON'}}</div>
-    <h2>รอเปิดจอง 3 พฤศจิกายน 2569</h2>
-    <p>กำหนดเปิดจองตามข้อมูลที่แจ้ง · ต้องรอระบบทางการเปิดรับจองจริง</p>
+    <div class="eyebrow">CHECKING AVAILABILITY</div>
+    <h2>{{payload?.bookingOpen===false?'ต้นทางปิดรับจองอยู่':'กำลังตรวจข้อมูลวันว่าง'}}</h2>
+    <p>กำหนดเปิดจองตามประกาศ: 4 พฤศจิกายน 2569 เวลา 08:00 น.</p>
     <p><b>{{payload?.message??'กำลังตรวจสถานะระบบอมก๋อย…'}}</b></p>
-    <p>เมื่อระบบเปิดและตรวจพบปฏิทินฤดูกาลใหม่ จะอ่านยอดและแสดงวันว่างให้เอง</p>
+    <p>ระบบกำลังอ่านปฏิทินและยอดจากต้นทาง จะแสดงข้อมูลให้ทันทีที่ตรวจสำเร็จ</p>
     <p class="fine">ยังไม่แสดงตัวเลขของฤดูกาลเก่าเป็นยอดของรอบใหม่</p>
     <p class="source">ตรวจสถานะล่าสุด: {{stamp(payload?.checkedAt)}}</p>
   </section>

@@ -3,7 +3,7 @@ export function updateHistory(previous, snapshot) {
   const history=(previous?.history??[]).map(event=>({...event}));
   const open=new Map(history.filter(event=>!event.closedAt).map(event=>[event.date,event]));
   for(const row of snapshot.records??[]) {
-    if(row.stale || !row.observedAt || snapshot.bookingOpen!==true)continue;
+    if(row.stale || !row.observedAt || snapshot.bookingOpen===false)continue;
     const event=open.get(row.date);
     if(row.available>0) {
       if(event) {event.available=row.available;event.lastSeenAt=row.observedAt;}
