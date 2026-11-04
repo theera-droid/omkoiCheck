@@ -7,6 +7,12 @@ const connection=ref('connecting');
 const connectionLabel=computed(()=>!liveMode?'อัปเดตเป็นรอบจาก GitHub Pages':connection.value==='live'?'เชื่อมต่อข้อมูลสดแล้ว · ตรวจต้นทางเป็นรอบ':connection.value==='reconnecting'?'การเชื่อมต่อขาดหาย · กำลังเชื่อมต่อใหม่':'กำลังเชื่อมต่อข้อมูลสด…');
 const payload=ref(null),error=ref(''),busy=ref(false),month=ref(''),selected=ref(''),clock=ref(Date.now());
 const view=ref('log');
+const routes=[
+  {id:1,name:'บ้านมูเซอปากทาง',address:'หมู่ 5 ต.ม่อนจอง อ.อมก๋อย จ.เชียงใหม่',map:'https://maps.app.goo.gl/j9tSkETnSmu9SxrH9'},
+  {id:2,name:'บ้านห้วยปูลิง',address:'หมู่ 3 ต.ม่อนจอง อ.อมก๋อย จ.เชียงใหม่',map:'https://maps.app.goo.gl/CcNL2kLHivubfVqdA'},
+];
+const selectedRoute=ref(1);
+const activeRoute=computed(()=>routes.find(route=>route.id===selectedRoute.value));
 const history=computed(()=>payload.value?.history??[]);
 const latest=computed(()=>history.value[0]);
 const thaiDate=value=>new Date(value+'T12:00:00+07:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Bangkok'});
@@ -86,24 +92,32 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
 <header v-if="view==='log'" class="log-header"><button class="log-back" aria-label="ดูปฏิทิน" @click="view='calendar'">←</button><div><div class="log-eyebrow">▤ log ติดตามวันว่าง</div><h1>อมก๋อย</h1></div><span class="log-updated">ข้อมูล ณ {{time(payload?.checkedAt)}}</span></header>
 <header v-else><div class="brand"><span aria-hidden="true">△</span> OMKOI</div><button class="view-switch" @click="view='log'">ดู log วันว่าง →</button></header>
 <main v-if="view==='log'" class="log-main">
+  <section class="log-card routes-card" aria-labelledby="routes-title">
+    <h2 id="routes-title">เลือกเส้นทางเดินป่า</h2>
+    <div class="route-options"><article v-for="route in routes" :key="route.id" class="route-option" :class="{'route-selected':selectedRoute===route.id}">
+      <label><input v-model="selectedRoute" type="radio" name="route" :value="route.id"><span><strong>เส้นทาง{{route.name}}</strong><small>{{route.address}}</small></span></label>
+      <a :href="route.map" target="_blank" rel="noopener noreferrer" :aria-label="'ดูแผนที่เส้นทาง'+route.name">กดดูแผนที่ ↗</a>
+    </article></div>
+    <p class="route-quota-note">ทั้ง 2 เส้นทางใช้ยอดว่างรวมที่ต้นทางแสดงตามวันที่ ยังไม่มีตัวเลขโควตาว่างแยกเส้นทาง การเปลี่ยนเส้นทางจึงไม่เปลี่ยนยอดหรือ log</p>
+  </section>
   <div class="live-status" role="status"><i :class="{connected:liveMode&&connection==='live'}"></i>{{connectionLabel}}<span v-if="liveMode">พัก 30 วินาทีหลังจบรอบตรวจ · อัปเดตเมื่อได้รับข้อมูล</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <p v-if="payload && payload.state!=='ready'" class="omkoi-alert">{{payload.message}}</p>
   <div v-if="payload?.progress?.stage==='quantities'" class="scan-progress" role="status"><progress :value="payload.progress.attempted" :max="payload.progress.total||1"></progress><span>ตรวจแล้ว {{payload.progress.attempted}} / {{payload.progress.total}} วัน · มีตัวเลขแล้ว {{allDates.length-unknownDates.length}} วัน</span></div>
   <section class="log-card all-dates-card" aria-labelledby="all-dates-title">
-    <div class="dates-heading"><div><h2 id="all-dates-title">วันว่างทุกวัน</h2><p>พบยอดว่าง {{availableDates.length}} วัน · ยังไม่ทราบยอด {{unknownDates.length}} วัน · ทั้งหมด {{allDates.length}} วัน</p></div>
+    <div class="dates-heading"><div><h2 id="all-dates-title">วันว่าง · {{activeRoute.name}}</h2><p>ยอดรวมทั้ง 2 เส้นทาง · พบยอดว่าง {{availableDates.length}} วัน · ยังไม่ทราบยอด {{unknownDates.length}} วัน · ทั้งหมด {{allDates.length}} วัน</p></div>
       <div class="date-filters" aria-label="เลือกวันที่แสดง"><button :aria-pressed="dateFilter==='all'" @click="dateFilter='all'">ทุกวัน ({{allDates.length}})</button><button :aria-pressed="dateFilter==='available'" @click="dateFilter='available'">พบยอดว่าง ({{availableDates.length}})</button></div>
     </div>
     <p class="log-note">เรียงตามวันเข้าเดินป่า ครบทุกเดือน · ยอดเก่าแสดงไว้พร้อมเวลาตรวจ ไม่ยืนยันว่าขณะนี้ยังว่าง</p>
     <div v-if="visibleDates.length" class="all-dates-scroll" tabindex="0" role="region" aria-label="ตารางวันว่างทุกวัน เลื่อนดูได้ครบทุกเดือน">
-      <table class="log-table all-dates-table"><thead><tr><th scope="col">วันที่เข้า</th><th scope="col">ที่ว่าง</th><th scope="col">สถานะ</th><th scope="col">ตรวจล่าสุด</th></tr></thead><tbody>
+      <table class="log-table all-dates-table"><thead><tr><th scope="col">วันที่เข้า</th><th scope="col">ที่ว่างรวม 2 เส้นทาง</th><th scope="col">สถานะ</th><th scope="col">ตรวจล่าสุด</th></tr></thead><tbody>
         <tr v-for="row in visibleDates" :key="row.date" :class="{'date-available':row.available>0&&!old(row),'date-outdated':old(row)}"><td><button class="date-link" @click="showDate(row.date)">{{thaiDate(row.date)}}</button></td><td><strong>{{row.available??'—'}}</strong><span v-if="row.available!=null"> ที่</span></td><td>{{dateStatus(row)}}</td><td>{{row.observedAt?stamp(row.observedAt):'รอตรวจ'}}</td></tr>
       </tbody></table>
     </div>
     <p v-else class="log-empty">{{allDates.length?'ยังไม่พบยอดว่างในข้อมูลที่ตรวจได้ ไม่ได้หมายความว่าทุกวันเต็ม':'กำลังอ่านรายการวันที่จากปฏิทินต้นทาง…'}}</p>
   </section>
   <section class="log-card latest-card">
-    <div class="log-label">ล่าสุดที่ว่าง</div>
+    <div class="log-label">ล่าสุดที่ว่าง · ข้อมูลรวมทั้ง 2 เส้นทาง</div>
     <template v-if="latest"><h2>{{thaiDate(latest.date)}}</h2><div class="log-stats">
       <div><span>ว่างตั้งแต่</span><strong>{{time(latest.openedAt)}}</strong><small>{{observedDate(latest.openedAt)}}</small></div>
       <div><span>ผ่านมานานแล้ว</span><strong>{{duration(latest.openedAt)}}</strong></div>
@@ -113,7 +127,7 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
     </div></template>
     <div v-else class="log-empty"><h2>{{payload?'ยังไม่พบประวัติวันว่าง':'กำลังโหลดประวัติวันว่าง…'}}</h2><p>ระบบจะบันทึกเมื่ออ่านพบที่ว่างจากต้นทาง เริ่มเก็บประวัติตั้งแต่เปิดใช้ log</p></div>
   </section>
-  <section class="log-card history-card"><h2>ทุกครั้งที่ว่าง <span>({{history.length}} ครั้ง)</span></h2>
+  <section class="log-card history-card"><h2>ประวัติที่ว่างรวมทั้ง 2 เส้นทาง <span>({{history.length}} ครั้ง)</span></h2>
     <div v-if="history.length" class="log-table-scroll" tabindex="0" role="region" aria-label="ประวัติวันว่าง เลื่อนตารางในแนวนอนได้"><table class="log-table"><thead><tr><th>วันที่เข้า</th><th>ว่างตั้งแต่</th><th>ผ่านมานานแล้ว</th><th>สถานะ</th><th>ว่างนาน</th><th>ที่ว่าง</th></tr></thead><tbody>
       <tr v-for="event in history" :key="event.id"><td><button class="date-link" @click="showDate(event.date)">{{thaiDate(event.date)}}</button></td><td><b>{{time(event.openedAt)}}</b><small>{{stamp(event.openedAt).split(' ')[0]}}</small></td><td>{{duration(event.openedAt)}}</td><td :class="{ 'is-open':confirmed(event) }" :title="event.closedAt?stamp(event.closedAt):'ตรวจพบล่าสุด '+stamp(event.lastSeenAt)">{{eventStatus(event)}}</td><td>{{eventDuration(event)}}</td><td>{{event.available}}</td></tr>
     </tbody></table></div><p v-else class="log-empty">ยังไม่มีรายการวันว่างที่บันทึกไว้</p>
@@ -125,6 +139,7 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
   <footer>เว็บไซต์อิสระ ไม่ใช่เว็บไซต์ของเขตรักษาพันธุ์สัตว์ป่าอมก๋อย · ไม่รับจอง</footer>
 </main>
 <main v-else>
+  <div class="calendar-route"><label>เส้นทาง <select v-model="selectedRoute"><option v-for="route in routes" :key="route.id" :value="route.id">{{route.name}}</option></select></label><a :href="activeRoute.map" target="_blank" rel="noopener noreferrer">ดูแผนที่ ↗</a><p>ยอดในปฏิทินเป็นยอดว่างรวมทั้ง 2 เส้นทางตามข้อมูลต้นทาง</p></div>
   <section class="hero"><div class="hero-copy"><div class="eyebrow">OMKOI · NATURE TRAIL</div><h1>วางแผนวันเดินป่าอมก๋อย</h1><p>ปฏิทินวันว่างจากระบบจองทางการ<br>อ่านยอดจริงและแสดงเวลาที่ตรวจได้</p></div></section>
   <div class="notice"><b>◌ {{connectionLabel}}</b><span>{{liveMode?'พัก 30 วินาทีหลังจบรอบตรวจ':'ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า'}} · ไม่รับจอง</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
