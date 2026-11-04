@@ -100,7 +100,7 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
     </article></div>
     <p class="route-quota-note">ทั้ง 2 เส้นทางใช้ยอดว่างรวมที่ต้นทางแสดงตามวันที่ ยังไม่มีตัวเลขโควตาว่างแยกเส้นทาง การเปลี่ยนเส้นทางจึงไม่เปลี่ยนยอดหรือ log</p>
   </section>
-  <div class="live-status" role="status"><i :class="{connected:liveMode&&connection==='live'}"></i>{{connectionLabel}}<span v-if="liveMode">พัก 30 วินาทีหลังจบรอบตรวจ · อัปเดตเมื่อได้รับข้อมูล</span></div>
+  <div class="live-status" role="status"><i :class="{connected:liveMode&&connection==='live'}"></i>{{connectionLabel}}<span v-if="liveMode">พัก 5 วินาทีหลังจบรอบตรวจ · อัปเดตเมื่อได้รับข้อมูล</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <p v-if="payload && payload.state!=='ready'" class="omkoi-alert">{{payload.message}}</p>
   <div v-if="payload?.progress?.stage==='quantities'" class="scan-progress" role="status"><progress :value="payload.progress.attempted" :max="payload.progress.total||1"></progress><span>ตรวจแล้ว {{payload.progress.attempted}} / {{payload.progress.total}} วัน · มีตัวเลขแล้ว {{allDates.length-unknownDates.length}} วัน</span></div>
@@ -141,7 +141,7 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
 <main v-else>
   <div class="calendar-route"><label>เส้นทาง <select v-model="selectedRoute"><option v-for="route in routes" :key="route.id" :value="route.id">{{route.name}}</option></select></label><a :href="activeRoute.map" target="_blank" rel="noopener noreferrer">ดูแผนที่ ↗</a><p>ยอดในปฏิทินเป็นยอดว่างรวมทั้ง 2 เส้นทางตามข้อมูลต้นทาง</p></div>
   <section class="hero"><div class="hero-copy"><div class="eyebrow">OMKOI · NATURE TRAIL</div><h1>วางแผนวันเดินป่าอมก๋อย</h1><p>ปฏิทินวันว่างจากระบบจองทางการ<br>อ่านยอดจริงและแสดงเวลาที่ตรวจได้</p></div></section>
-  <div class="notice"><b>◌ {{connectionLabel}}</b><span>{{liveMode?'พัก 30 วินาทีหลังจบรอบตรวจ':'ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า'}} · ไม่รับจอง</span></div>
+  <div class="notice"><b>◌ {{connectionLabel}}</b><span>{{liveMode?'พัก 5 วินาทีหลังจบรอบตรวจ':'ตรวจอัตโนมัติเป็นรอบประมาณ 5 นาทีหรือมากกว่า'}} · ไม่รับจอง</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <section v-if="!payload?.calendar" class="calendar waiting" aria-live="polite">
     <div class="eyebrow">CHECKING AVAILABILITY</div>

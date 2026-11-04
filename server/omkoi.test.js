@@ -99,3 +99,33 @@ test('outage retains a verified new-season count with its original time',async()
   const result=await updateOmkoi({now:()=>before,previous:{records:[row]},fetchImpl:async()=>{throw new Error('offline');}});
   assert.equal(result.state,'unavailable');assert.equal(result.records[0].available,66);assert.equal(result.records[0].observedAt,row.observedAt);assert.equal(result.records[0].stale,true);
 });
+test('a slow request does not hold the next dates behind its batch; concurrency stays at three', {timeout:3000},async()=>{
+  let release,active=0,peak=0,started=0,firstDone=false;
+  const slow=new Promise(resolve=>{release=resolve;});
+  const result=await updateOmkoi({now:()=>before,pause:async()=>{},fetchImpl:async url=>{
+    if(url.endsWith('/open'))return Response.json({data:{open:true}});
+    if(url.endsWith('/reservation'))return new Response('<script src="/_next/static/chunks/1205-test.js"></script>');
+    if(url.endsWith('.js'))return new Response(calendar('2026-11-20'));
+    const position=++started;active++;peak=Math.max(peak,active);
+    if(position===1){await slow;firstDone=true;}
+    if(position===4){assert.equal(firstDone,false);release();}
+    active--;return Response.json({status:'success',data:{qty:230,qty_reserve:20}});
+  }});
+  assert.equal(result.state,'ready');assert(started>3);assert(peak<=3);
+});
+test('unchanged calendar asset reuses rules, while a new asset is fetched',async()=>{
+  let asset='1205-first.js';const urls=[];
+  const fetchImpl=async url=>{
+    urls.push(url);
+    if(url.endsWith('/open'))return Response.json({data:{open:true}});
+    if(url.endsWith('/reservation'))return new Response(`<script src="/_next/static/chunks/${asset}"></script>`);
+    if(url.endsWith('.js'))return new Response(calendar('2026-11-13'));
+    return Response.json({status:'success',data:{qty:230,qty_reserve:20}});
+  };
+  const first=await updateOmkoi({now:()=>before,pause:async()=>{},fetchImpl});urls.length=0;
+  const second=await updateOmkoi({previous:first,now:()=>before,pause:async()=>{},fetchImpl});
+  assert(!urls.some(url=>url.endsWith('.js')));assert.deepEqual(second.calendar.dates,first.calendar.dates);
+  asset='1205-changed.js';urls.length=0;
+  await updateOmkoi({previous:second,now:()=>before,pause:async()=>{},fetchImpl});
+  assert(urls.some(url=>url.endsWith(asset)));
+});
