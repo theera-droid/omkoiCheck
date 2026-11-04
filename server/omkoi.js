@@ -38,14 +38,17 @@ export function parseOmkoiQuantity(body,date,checkedAt) {
   if(body?.status!=='success' || !Number.isInteger(d?.qty) || !Number.isInteger(d?.qty_reserve) || d.qty<0 || d.qty_reserve<0 || d.qty_reserve>d.qty)throw new Error('รูปแบบยอดอมก๋อยไม่ตรงกับที่ตรวจไว้');
   return {date,available:d.qty_reserve,capacity:d.qty,status:d.qty_reserve===0?'full':d.qty_reserve<=10?'low':'available',observedAt:checkedAt,stale:false};
 }
-export async function updateOmkoi({previous=null,fetchImpl=fetch,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
-  const snapshot=await collectOmkoi({previous,fetchImpl,now,pause});
-  return {...snapshot,history:updateHistory(previous,snapshot)};
+export async function updateOmkoi({previous=null,fetchImpl=fetch,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),onProgress=()=>{}}={}) {
+  let history=previous?.history??[];
+  const enrich=snapshot=>{history=updateHistory({history},snapshot);return {...snapshot,history};};
+  const snapshot=await collectOmkoi({previous,fetchImpl,now,pause,onProgress:snapshot=>onProgress(enrich(snapshot))});
+  return enrich(snapshot);
 }
-async function collectOmkoi({previous,fetchImpl,now,pause}) {
+async function collectOmkoi({previous,fetchImpl,now,pause,onProgress}) {
   const checkedAt=new Date(now()).toISOString();
   const priorRows=(previous?.records??[]).filter(row=>row?.date>=EXPECTED && Number.isInteger(row.available) && row.available>=0 && Number.isInteger(row.capacity) && row.capacity>=row.available && Number.isFinite(Date.parse(row.observedAt))).map(row=>({...row,stale:true}));
   const base={version:1,site:'omkoi',sourceUrl:OMKOI_URL,expectedOpening:EXPECTED,checkedAt,bookingOpen:null,records:priorRows,calendar:previous?.calendar??null};
+  onProgress({...base,state:'checking',message:'กำลังเชื่อมต่อต้นทาง ยอดที่เคยตรวจได้ยังแสดงอยู่',progress:{stage:'opening',attempted:0,total:base.calendar?.dates.length??0}});
   const get=async(url,json=true)=>{
     const r=await fetchImpl(url,{signal:AbortSignal.timeout(45000),redirect:'error'});
     if(!r.ok)throw Object.assign(new Error(`ต้นทางตอบ HTTP ${r.status}`),{status:r.status});
@@ -64,6 +67,7 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
     const today=bangkokDate(now());
     if(today<EXPECTED || base.bookingOpen===false)return {...base,state:'waiting',message:today<EXPECTED?'กำหนดเปิดจอง 4 พฤศจิกายน 2569 เวลา 08:00 น.':'ต้นทางยังปิดรับจอง ระบบจะตรวจซ้ำอัตโนมัติ'};
     const html=await get(OMKOI_URL,false);
+    onProgress({...base,state:'checking',message:'กำลังอ่านปฏิทินล่าสุดจากต้นทาง',progress:{stage:'calendar',attempted:0,total:base.calendar?.dates.length??0}});
     const paths=[...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map(m=>m[1]).filter(p=>/^\/_next\/static\/chunks\/(?:\d+-|app\/omkoi\/reservation\/page-)/.test(p));
     let calendar=null,found=false;
     for(const path of [...new Set(paths)].sort((a,b)=>Number(b.includes('/app/omkoi/'))-Number(a.includes('/app/omkoi/'))).slice(0,24)) {
@@ -75,19 +79,24 @@ async function collectOmkoi({previous,fetchImpl,now,pause}) {
     base.calendar=calendar;
     const records=new Map(priorRows.filter(row=>calendar.dates.includes(row.date)).map(row=>[row.date,row]));
     // Prioritize unread/oldest dates so a slow source cannot starve the end of the calendar.
-    const queue=[...calendar.dates].sort((a,b)=>(Date.parse(records.get(a)?.observedAt)||0)-(Date.parse(records.get(b)?.observedAt)||0));
+    const attempts=Object.fromEntries(calendar.dates.filter(date=>previous?.attempts?.[date]).map(date=>[date,previous.attempts[date]]));
+    const queue=[...calendar.dates].sort((a,b)=>(Date.parse(attempts[a]??records.get(a)?.observedAt)||0)-(Date.parse(attempts[b]??records.get(b)?.observedAt)||0));
     let stop=false;
+    let attempted=0;
+    const report=()=>onProgress({...base,records:[...records.values()],attempts:{...attempts},state:'checking',message:`กำลังตรวจยอด ${attempted}/${queue.length} วัน · แสดงยอดทันทีที่อ่านได้`,progress:{stage:'quantities',attempted,total:queue.length}});
+    report();
     const scanStarted=now();
     for(let i=0;i<queue.length && !stop && now()-scanStarted<240000;i+=3) {
       const batch=queue.slice(i,i+3);
-      const results=await Promise.allSettled(batch.map(async date=>parseOmkoiQuantity(await get(ROOT+'/api/omkoi/reservation/check-qty-people?start_date='+date),date,new Date(now()).toISOString())));
-      results.forEach((r,j)=>{
-        if(r.status==='fulfilled')records.set(batch[j],r.value);
-        else if([401,403,429].includes(r.reason.status))stop=true;
-      });
+      await Promise.all(batch.map(async date=>{
+        try {records.set(date,parseOmkoiQuantity(await get(ROOT+'/api/omkoi/reservation/check-qty-people?start_date='+date),date,new Date(now()).toISOString()));}
+        catch(error){if([401,403,429].includes(error.status))stop=true;}
+        finally {attempts[date]=new Date(now()).toISOString();attempted++;report();}
+      }));
       if(i+3<calendar.dates.length && !stop)await pause(1250);
     }
     base.records=[...records.values()];
+    base.attempts=attempts;
     const complete=base.records.length===calendar.dates.length && base.records.every(row=>!row.stale);
     const message=complete?'ยอดจากระบบอมก๋อย ณ เวลาที่ระบุ':'อ่านยอดได้ไม่ครบ ยอดเก่ามีป้ายกำกับและจะลองใหม่รอบถัดไป';
     return {...base,state:complete&&base.bookingOpen===true?'ready':'partial',message:message+(base.openingError?' · '+base.openingError+' แต่ยังตรวจจำนวนที่ว่างได้ แนะนำตรวจการจองบนเว็บทางการ':'')};

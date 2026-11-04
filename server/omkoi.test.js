@@ -65,6 +65,35 @@ test('timeouts on the first batch do not prevent checking later dates',async()=>
   }});
   assert(counts>3);assert(result.records.length>0);assert.equal(result.state,'partial');
 });
+test('publishes each successful quantity before other dates finish and keeps one history event',async()=>{
+  let release;
+  const slow=new Promise(resolve=>{release=resolve;});
+  let reported=false;
+  const result=await updateOmkoi({now:()=>before,pause:async()=>{},onProgress:snapshot=>{
+    if(snapshot.records.some(row=>row.available===19)){
+      assert(snapshot.history.some(event=>event.available===19));
+      reported=true;release();
+    }
+  },fetchImpl:async url=>{
+    if(url.endsWith('/open'))return Response.json({data:{open:true}});
+    if(url.endsWith('/reservation'))return new Response('<script src="/_next/static/chunks/1205-test.js"></script>');
+    if(url.endsWith('.js'))return new Response(calendar('2026-11-13'));
+    if(url.includes('2026-11-13'))await slow;
+    return Response.json({status:'success',data:{qty:230,qty_reserve:url.includes('2026-11-12')?19:20}});
+  }});
+  assert(reported);assert.equal(result.records.length,2);assert.equal(result.history.length,2);
+});
+test('dates attempted in the previous round move behind unattempted dates',async()=>{
+  const dates=[];
+  await updateOmkoi({previous:{attempts:{'2026-11-12':'2026-11-04T01:00:00Z'}},now:()=>before,pause:async()=>{},fetchImpl:async url=>{
+    if(url.endsWith('/open'))return Response.json({data:{open:true}});
+    if(url.endsWith('/reservation'))return new Response('<script src="/_next/static/chunks/1205-test.js"></script>');
+    if(url.endsWith('.js'))return new Response(calendar('2026-11-13'));
+    dates.push(new URL(url).searchParams.get('start_date'));
+    return Response.json({status:'success',data:{qty:230,qty_reserve:20}});
+  }});
+  assert.deepEqual(dates,['2026-11-13','2026-11-12']);
+});
 test('outage retains a verified new-season count with its original time',async()=>{
   const row={date:'2026-11-10',available:66,capacity:230,observedAt:'2026-11-03T01:00:00Z'};
   const result=await updateOmkoi({now:()=>before,previous:{records:[row]},fetchImpl:async()=>{throw new Error('offline');}});

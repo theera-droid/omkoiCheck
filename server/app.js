@@ -19,7 +19,7 @@ export function createApp({fetchImpl=fetch,cachePath=process.env.CACHE_PATH||fil
     clearTimeout(timer);
     pending=(async()=>{
       await ready;
-      snapshot=await updateImpl({previous:snapshot,fetchImpl});
+      snapshot=await updateImpl({previous:snapshot,fetchImpl,onProgress:partial=>{snapshot=partial;publish();}});
       if(cachePath)try{await mkdir(dirname(cachePath),{recursive:true});await writeFile(cachePath+'.tmp',JSON.stringify(snapshot));await rename(cachePath+'.tmp',cachePath);}catch{console.warn('Could not save local cache');}
       publish();
     })().catch(()=>{

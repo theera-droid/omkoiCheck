@@ -89,6 +89,7 @@ onUnmounted(()=>{disposed=true;stream?.close();controller?.abort();clearTimeout(
   <div class="live-status" role="status"><i :class="{connected:liveMode&&connection==='live'}"></i>{{connectionLabel}}<span v-if="liveMode">พัก 30 วินาทีหลังจบรอบตรวจ · อัปเดตเมื่อได้รับข้อมูล</span></div>
   <p v-if="error" class="omkoi-alert" role="alert">{{error}}</p>
   <p v-if="payload && payload.state!=='ready'" class="omkoi-alert">{{payload.message}}</p>
+  <div v-if="payload?.progress?.stage==='quantities'" class="scan-progress" role="status"><progress :value="payload.progress.attempted" :max="payload.progress.total||1"></progress><span>ตรวจแล้ว {{payload.progress.attempted}} / {{payload.progress.total}} วัน · มีตัวเลขแล้ว {{allDates.length-unknownDates.length}} วัน</span></div>
   <section class="log-card all-dates-card" aria-labelledby="all-dates-title">
     <div class="dates-heading"><div><h2 id="all-dates-title">วันว่างทุกวัน</h2><p>พบยอดว่าง {{availableDates.length}} วัน · ยังไม่ทราบยอด {{unknownDates.length}} วัน · ทั้งหมด {{allDates.length}} วัน</p></div>
       <div class="date-filters" aria-label="เลือกวันที่แสดง"><button :aria-pressed="dateFilter==='all'" @click="dateFilter='all'">ทุกวัน ({{allDates.length}})</button><button :aria-pressed="dateFilter==='available'" @click="dateFilter='available'">พบยอดว่าง ({{availableDates.length}})</button></div>

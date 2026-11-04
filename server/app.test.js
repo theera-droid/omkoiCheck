@@ -14,6 +14,20 @@ async function serve(t,options){
   return {app,url:`http://127.0.0.1:${server.address().port}`};
 }
 const result=previous=>({...previous,state:'ready',checkedAt:new Date().toISOString(),records:[],history:[]});
+test('API exposes partial quantities while a scan is still running',async t=>{
+  let finish;
+  const held=new Promise(resolve=>{finish=resolve;});
+  const {app,url}=await serve(t,{cachePath:null,updateImpl:async({previous,onProgress})=>{
+    const partial={...result(previous),state:'checking',records:[{date:'2026-11-12',available:19}],progress:{attempted:1,total:83}};
+    onProgress(partial);await held;return {...partial,state:'partial'};
+  }});
+  t.after(()=>finish());
+  const pending=app.locals.warm();
+  try{
+    const response=await fetch(url+'/api/omkoi');const data=await response.json();
+    assert.equal(data.state,'checking');assert.equal(data.records[0].available,19);assert.equal(data.progress.attempted,1);
+  }finally{finish();await pending;}
+});
 
 test('one shared poll runs without viewers and stops cleanly',async t=>{
   let calls=0,inFlight=0,maxInFlight=0;
